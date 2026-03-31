@@ -737,6 +737,14 @@ app.delete(
   },
 );
 
+// ── Statische Frontend-Dateien bereitstellen ──────────────────
+app.use(express.static(join(__dirname, "./dist")));
+
+// Catch-all: SPA-Routing – alle unbekannten Routen an index.html
+app.get("*", (_req, res) => {
+  res.sendFile(join(__dirname, "./dist/index.html"));
+});
+
 app.listen(PORT, () => {
   console.log(`🚀 Backend läuft auf http://localhost:${PORT}`);
 });
