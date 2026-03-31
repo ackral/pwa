@@ -3,11 +3,11 @@
   "version": "1.0.0",
   "type": "module",
   "scripts": {
-    "start": "node --require ./preload-certs.cjs server.js",
-    "dev": "nodemon --require ./preload-certs.cjs server.js"
+    "start": "node server.js",
+    "dev": "nodemon server.js"
   },
   "engines": {
-    "node": "18.x"
+    "node": ">=20.0.0"
   },
   "dependencies": {
     "cors": "^2.8.5",
