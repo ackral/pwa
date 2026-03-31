@@ -2,7 +2,7 @@
 
 ## Projektstruktur
 
-```
+```c
 pwa-app/
 ├── frontend/                      ← React (Vite) PWA
 │   ├── src/
