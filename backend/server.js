@@ -342,6 +342,9 @@ const PORT = process.env.PORT || 3001;
 app.use(cors());
 app.use(express.json());
 
+// ── Frontend (SPA) bereitstellen ───────────────────────────────
+app.use(express.static(join(__dirname, "../pwa-app")));
+
 // Health-Check
 app.get("/api/health", (_req, res) => {
   res.json({ status: "ok", firebase: firebaseInitialized });
@@ -736,6 +739,11 @@ app.delete(
     res.json({ message: "Dokument gelöscht" });
   },
 );
+
+// ── SPA Catch-All: Alle nicht-API-Routen → index.html ─────────
+app.get("*", (_req, res) => {
+  res.sendFile(join(__dirname, "../pwa-app/index.html"));
+});
 
 app.listen(PORT, () => {
   console.log(`🚀 Backend läuft auf http://localhost:${PORT}`);
