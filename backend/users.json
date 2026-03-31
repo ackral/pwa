@@ -1,0 +1,26 @@
+[
+  {
+    "id": "1774616540785",
+    "username": "admin",
+    "password": "a4a30e1267f8c3c56c4358749ea75fc717b860350d80bcfc87d3113a2a99ce2d7f891462414f8ee0f459fc835b9c7384a524803330a5509fcc92660096a76a22",
+    "salt": "09272a2d5f5a2af6a3e1d9330c4e81bf",
+    "name": "Administrator",
+    "email": "",
+    "role": "admin",
+    "phone": "",
+    "position": "Administrator",
+    "createdAt": "2026-03-27T13:02:20.785Z"
+  },
+  {
+    "id": "1774617130739",
+    "username": "ackral",
+    "password": "f6f96bd9d07d6f7248bc5d1a20e0250ed5b331db78c49a3fee4e4d0ad648fd203d3c7f199ca1c49a26c53e632d306ab8a6e4530683ffbae48e20ca5ec11761de",
+    "salt": "bce10fe8d08df4e366b7d7f630aa42eb",
+    "name": "Ralph",
+    "email": "ralph@tkp.com",
+    "role": "user",
+    "phone": "0795552244",
+    "position": "Testing",
+    "createdAt": "2026-03-27T13:12:10.739Z"
+  }
+]
