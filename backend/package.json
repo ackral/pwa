@@ -1,0 +1,22 @@
+{
+  "name": "pwa-backend",
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "start": "node --require ./preload-certs.cjs server.js",
+    "dev": "nodemon --require ./preload-certs.cjs server.js"
+  },
+  "engines": {
+    "node": "18.x"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "express": "^4.21.0",
+    "firebase-admin": "^13.0.0",
+    "multer": "^2.1.1",
+    "win-ca": "^3.5.1"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.14"
+  }
+}

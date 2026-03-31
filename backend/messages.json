@@ -1,0 +1,76 @@
+[
+  {
+    "id": "1774615256833",
+    "title": "test",
+    "body": "tesr",
+    "category": "intern",
+    "createdAt": "2026-03-27T12:40:56.833Z",
+    "sentTo": 2
+  },
+  {
+    "id": "1774536502563",
+    "title": "mm",
+    "body": "mm",
+    "category": "intern",
+    "createdAt": "2026-03-26T14:48:22.563Z",
+    "sentTo": 2
+  },
+  {
+    "id": "1774536490681",
+    "title": "jj",
+    "body": "jj",
+    "category": "intern",
+    "createdAt": "2026-03-26T14:48:10.681Z",
+    "sentTo": 2
+  },
+  {
+    "id": "1774536237845",
+    "title": "sdfg",
+    "body": "sg",
+    "category": "intern",
+    "createdAt": "2026-03-26T14:43:57.845Z",
+    "sentTo": 2
+  },
+  {
+    "id": "1774534362951",
+    "title": "hj",
+    "body": "hjkg",
+    "category": "intern",
+    "createdAt": "2026-03-26T14:12:42.951Z",
+    "sentTo": 1
+  },
+  {
+    "id": "1774534284208",
+    "title": "45",
+    "body": "456",
+    "category": "event",
+    "createdAt": "2026-03-26T14:11:24.208Z",
+    "sentTo": 0,
+    "eventDate": "2026-03-17"
+  },
+  {
+    "id": "1774533435833",
+    "title": "uio",
+    "body": "io",
+    "category": "intern",
+    "createdAt": "2026-03-26T13:57:15.833Z",
+    "sentTo": 1
+  },
+  {
+    "id": "1774533280658",
+    "title": "lö",
+    "body": "$",
+    "category": "intern",
+    "createdAt": "2026-03-26T13:54:40.658Z",
+    "sentTo": 0,
+    "sendError": "Session error while making requests: ERR_HTTP2_ERROR - Protocol error "
+  },
+  {
+    "id": "1774533172658",
+    "title": ".$à",
+    "body": ",kä$",
+    "category": "intern",
+    "createdAt": "2026-03-26T13:52:52.658Z",
+    "sentTo": 0
+  }
+]
