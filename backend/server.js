@@ -25,14 +25,22 @@ const serviceAccountPath = "./service-account.json";
 let serviceAccount = null;
 let firebaseInitialized = false;
 
-if (existsSync(serviceAccountPath)) {
+if (process.env.FIREBASE_SERVICE_ACCOUNT) {
+  try {
+    serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
+    firebaseInitialized = true;
+    console.log("✅ Firebase Admin initialisiert (aus Umgebungsvariable)");
+  } catch (err) {
+    console.error("❌ FIREBASE_SERVICE_ACCOUNT ist kein gültiges JSON");
+  }
+} else if (existsSync(serviceAccountPath)) {
   serviceAccount = JSON.parse(readFileSync(serviceAccountPath, "utf8"));
   firebaseInitialized = true;
-  console.log("✅ Firebase Admin initialisiert");
+  console.log("✅ Firebase Admin initialisiert (aus Datei)");
 } else {
   console.warn(
-    "⚠️  service-account.json nicht gefunden!\n" +
-      "   Lade ihn aus der Firebase Console herunter und lege ihn in backend/ ab.\n",
+    "⚠️  Firebase nicht konfiguriert. Setze die Umgebungsvariable FIREBASE_SERVICE_ACCOUNT\n" +
+      "   oder lege service-account.json in backend/ ab (nur für lokale Entwicklung).\n",
   );
 }
 
