@@ -96,12 +96,16 @@ function AppRoutes() {
   // it hasn't been seen yet. Runs on mount and whenever the user
   // returns to the app (window focus / tab visibility change).
   const checkMessages = useCallback(async () => {
-    // Only check when a user is logged in
-    if (!user) return;
+    // Only check when a user is logged in and a token is available
+    if (!user || !token) return;
     try {
       const res = await fetch("/api/messages", {
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
+        headers: { Authorization: `Bearer ${token}` },
       });
+      if (res.status === 401) {
+        console.warn("[InAppNotif] Auth failed (401) – token may be expired");
+        return;
+      }
       if (!res.ok) return;
       const messages = await res.json();
       if (!Array.isArray(messages) || messages.length === 0) return;
