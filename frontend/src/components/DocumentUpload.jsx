@@ -161,7 +161,7 @@ function DocumentUpload() {
               </div>
               <div className="document-actions">
                 <a
-                  href={`/api/uploads/${doc.filename}`}
+                  href={`${window.location.origin}/api/uploads/${doc.filename}`}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="btn-small"

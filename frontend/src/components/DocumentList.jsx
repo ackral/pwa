@@ -91,7 +91,7 @@ function DocumentList() {
           {filtered.map((doc) => (
             <a
               key={doc.id}
-              href={`/api/uploads/${doc.filename}`}
+              href={`${window.location.origin}/api/uploads/${doc.filename}`}
               target="_blank"
               rel="noopener noreferrer"
               className="document-link-item"

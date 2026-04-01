@@ -857,7 +857,11 @@ app.delete(
 // ── Statische Frontend-Dateien ────────────────────────────────
 app.use(express.static(join(__dirname, "./dist")));
 
-app.get("*", (_req, res) => {
+app.get("*", (req, res) => {
+  // API-Requests nicht an SPA weiterleiten
+  if (req.path.startsWith("/api/")) {
+    return res.status(404).json({ error: "Not found" });
+  }
   res.sendFile(join(__dirname, "./dist/index.html"));
 });
 
