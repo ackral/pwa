@@ -184,6 +184,22 @@ function AppRoutes() {
     };
   }, [checkMessages]);
 
+  // ── Service Worker Push-Nachricht empfangen ──────────────────
+  // Wenn der SW eine Push-Nachricht bekommt, benachrichtigt er die App,
+  // damit Badge & Banner sofort aktualisiert werden (iOS + Android)
+  useEffect(() => {
+    if (!("serviceWorker" in navigator)) return;
+    const handleSWMessage = (event) => {
+      if (event.data?.type === "PUSH_RECEIVED") {
+        checkMessages();
+      }
+    };
+    navigator.serviceWorker.addEventListener("message", handleSWMessage);
+    return () => {
+      navigator.serviceWorker.removeEventListener("message", handleSWMessage);
+    };
+  }, [checkMessages]);
+
   // ── Automatische Web-Push-Registrierung ──────────────────────
   // Wenn Notification-Berechtigung bereits erteilt ist, beim App-Start
   // die native Web Push Subscription registrieren (für iOS, Firefox, etc.)
@@ -206,9 +222,11 @@ function AppRoutes() {
       const { title, body } = payload.notification || {};
       setToast({ title, body });
       setTimeout(() => setToast(null), 5000);
+      // Badge & Banner sofort aktualisieren
+      checkMessages();
     });
     return () => unsubscribe;
-  }, []);
+  }, [checkMessages]);
 
   return (
     <>
