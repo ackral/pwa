@@ -17,6 +17,7 @@ import { createSign, scryptSync, randomBytes } from "crypto";
 import multer from "multer";
 import { fileURLToPath } from "url";
 import { dirname, join, extname } from "path";
+import webpush from "web-push";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -42,6 +43,76 @@ if (process.env.FIREBASE_SERVICE_ACCOUNT) {
     "⚠️  Firebase nicht konfiguriert. Setze die Umgebungsvariable FIREBASE_SERVICE_ACCOUNT\n" +
       "   oder lege service-account.json in backend/ ab (nur für lokale Entwicklung).\n",
   );
+}
+
+// ── VAPID-Schlüssel für Web Push (iOS & Desktop) ──────────────
+const VAPID_FILE = "./vapid.json";
+let vapidKeys;
+if (process.env.VAPID_PUBLIC_KEY && process.env.VAPID_PRIVATE_KEY) {
+  vapidKeys = {
+    publicKey: process.env.VAPID_PUBLIC_KEY,
+    privateKey: process.env.VAPID_PRIVATE_KEY,
+  };
+  console.log("✅ VAPID-Schlüssel aus Umgebungsvariablen geladen");
+} else if (existsSync(VAPID_FILE)) {
+  vapidKeys = JSON.parse(readFileSync(VAPID_FILE, "utf8"));
+  console.log("✅ VAPID-Schlüssel aus Datei geladen");
+} else {
+  vapidKeys = webpush.generateVAPIDKeys();
+  writeFileSync(VAPID_FILE, JSON.stringify(vapidKeys, null, 2));
+  console.log("✅ VAPID-Schlüssel generiert und gespeichert");
+}
+webpush.setVapidDetails(
+  "mailto:admin@meinepwa.local",
+  vapidKeys.publicKey,
+  vapidKeys.privateKey,
+);
+
+// ── Web-Push-Subscription-Speicher ────────────────────────────
+const WEB_PUSH_SUBS_FILE = "./webpush-subs.json";
+
+function loadWebPushSubs() {
+  if (existsSync(WEB_PUSH_SUBS_FILE)) {
+    return JSON.parse(readFileSync(WEB_PUSH_SUBS_FILE, "utf8"));
+  }
+  return [];
+}
+
+function saveWebPushSubs(subs) {
+  writeFileSync(WEB_PUSH_SUBS_FILE, JSON.stringify(subs, null, 2));
+}
+
+async function sendWebPushToAll(title, body, messageCount) {
+  const subs = loadWebPushSubs();
+  if (subs.length === 0) return { successCount: 0, failureCount: 0 };
+
+  const payload = JSON.stringify({ title, body, badge: messageCount });
+  const results = await Promise.allSettled(
+    subs.map((sub) => webpush.sendNotification(sub, payload, { TTL: 86400 })),
+  );
+
+  let successCount = 0;
+  const invalidSubs = [];
+  results.forEach((r, i) => {
+    if (r.status === "fulfilled") {
+      successCount++;
+    } else {
+      const status = r.reason?.statusCode;
+      // 404/410 = subscription expired/invalid
+      if (status === 404 || status === 410) {
+        invalidSubs.push(subs[i].endpoint);
+      }
+      console.error(`[WebPush] Fehler bei Sub ${i}:`, r.reason?.message);
+    }
+  });
+
+  // Abgelaufene Subscriptions entfernen
+  if (invalidSubs.length > 0) {
+    const cleaned = subs.filter((s) => !invalidSubs.includes(s.endpoint));
+    saveWebPushSubs(cleaned);
+  }
+
+  return { successCount, failureCount: results.length - successCount };
 }
 
 // ── Google OAuth2 Access Token per Service Account (JWT) ───────
@@ -430,6 +501,40 @@ app.post("/api/notifications/unsubscribe", (req, res) => {
   res.json({ message: "Token entfernt" });
 });
 
+// ── Web Push (iOS / native) ────────────────────────────────────
+
+// VAPID Public Key bereitstellen (Frontend braucht ihn für PushManager.subscribe)
+app.get("/api/push/vapid-public-key", (_req, res) => {
+  res.json({ publicKey: vapidKeys.publicKey });
+});
+
+// Native Web-Push-Subscription speichern
+app.post("/api/push/subscribe", (req, res) => {
+  const { subscription } = req.body;
+  if (!subscription || !subscription.endpoint) {
+    return res.status(400).json({ error: "Ungültige Subscription" });
+  }
+
+  const subs = loadWebPushSubs();
+  const already = subs.find((s) => s.endpoint === subscription.endpoint);
+  if (!already) {
+    subs.push(subscription);
+    saveWebPushSubs(subs);
+  }
+
+  res.json({ message: "Web-Push-Subscription registriert" });
+});
+
+// Native Web-Push-Subscription entfernen
+app.post("/api/push/unsubscribe", (req, res) => {
+  const { endpoint } = req.body;
+  if (!endpoint) return res.status(400).json({ error: "Endpoint fehlt" });
+
+  const subs = loadWebPushSubs().filter((s) => s.endpoint !== endpoint);
+  saveWebPushSubs(subs);
+  res.json({ message: "Web-Push-Subscription entfernt" });
+});
+
 // Test-Nachricht an alle registrierten Geräte senden
 app.post("/api/notifications/send-test", async (req, res) => {
   if (!firebaseInitialized) {
@@ -565,7 +670,19 @@ app.post(
       }
     }
 
+    // Web Push für iOS und andere Plattformen
     messages.unshift(newMessage);
+    const totalCount = messages.length;
+    try {
+      const wpResult = await sendWebPushToAll(title, body, totalCount);
+      console.log(
+        `[WebPush] Erfolg: ${wpResult.successCount}, Fehler: ${wpResult.failureCount}`,
+      );
+      newMessage.sentTo = (newMessage.sentTo || 0) + wpResult.successCount;
+    } catch (err) {
+      console.error("[WebPush] Senden fehlgeschlagen:", err.message);
+    }
+
     saveMessages(messages);
 
     res.json({
@@ -579,6 +696,15 @@ app.post(
 app.get("/api/messages", authMiddleware, (_req, res) => {
   const messages = loadMessages();
   res.json(messages);
+});
+
+// ── Nachrichten-Anzahl & neueste ID (für Badge-Count) ──────────
+app.get("/api/messages/count", authMiddleware, (_req, res) => {
+  const messages = loadMessages();
+  res.json({
+    total: messages.length,
+    latestId: messages.length > 0 ? messages[0].id : null,
+  });
 });
 
 // ── Admin: Nachrichten nach Kategorie ──────────────────────────
