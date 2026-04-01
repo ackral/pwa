@@ -157,6 +157,23 @@ main {
   letter-spacing: -0.01em;
 }
 
+.unread-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: #e74c3c;
+  color: white;
+  font-size: 0.75rem;
+  font-weight: 700;
+  min-width: 22px;
+  height: 22px;
+  padding: 0 6px;
+  border-radius: 11px;
+  margin-left: 0.5rem;
+  vertical-align: middle;
+  line-height: 1;
+}
+
 /* ── Card (legacy / other pages) ────────────────────────────── */
 
 .card {

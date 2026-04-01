@@ -537,60 +537,97 @@ app.post("/api/push/unsubscribe", (req, res) => {
 
 // Test-Nachricht an alle registrierten Geräte senden
 app.post("/api/notifications/send-test", async (req, res) => {
-  if (!firebaseInitialized) {
-    return res.status(503).json({ error: "Firebase nicht konfiguriert" });
+  const { title, body } = req.body;
+  const notifTitle = title || "Test-Nachricht";
+  const notifBody = body || "Dies ist eine Test-Benachrichtigung vom Server.";
+
+  let fcmSuccess = 0;
+  let fcmFailure = 0;
+
+  // FCM senden wenn konfiguriert
+  if (firebaseInitialized) {
+    const tokens = loadTokens();
+    if (tokens.length > 0) {
+      try {
+        const response = await sendToMultiple(tokens, {
+          title: notifTitle,
+          body: notifBody,
+        });
+        fcmSuccess = response.successCount;
+        fcmFailure = response.failureCount;
+      } catch (err) {
+        console.error("[send-test] FCM-Fehler:", err.message);
+      }
+    }
   }
 
-  const { title, body } = req.body;
-  const tokens = loadTokens();
+  // Web Push senden (iOS, Firefox, etc.)
+  let wpSuccess = 0;
+  let wpFailure = 0;
+  try {
+    const wpResult = await sendWebPushToAll(notifTitle, notifBody, 1);
+    wpSuccess = wpResult.successCount;
+    wpFailure = wpResult.failureCount;
+  } catch (err) {
+    console.error("[send-test] WebPush-Fehler:", err.message);
+  }
 
-  if (tokens.length === 0) {
+  const totalSuccess = fcmSuccess + wpSuccess;
+  const totalDevices = fcmSuccess + fcmFailure + wpSuccess + wpFailure;
+
+  if (totalDevices === 0) {
     return res.status(404).json({ error: "Keine Geräte registriert" });
   }
 
-  try {
-    const response = await sendToMultiple(tokens, {
-      title: title || "Test-Nachricht",
-      body: body || "Dies ist eine Test-Benachrichtigung vom Server.",
-    });
-
-    res.json({
-      message: `Gesendet an ${response.successCount}/${tokens.length} Geräte`,
-      successCount: response.successCount,
-      failureCount: response.failureCount,
-    });
-  } catch (err) {
-    res.status(500).json({ error: "Senden fehlgeschlagen: " + err.message });
-  }
+  res.json({
+    message: `Gesendet an ${totalSuccess}/${totalDevices} Geräte`,
+    successCount: totalSuccess,
+    failureCount: fcmFailure + wpFailure,
+  });
 });
 
 // Broadcast: Nachricht an alle
 app.post("/api/notifications/broadcast", async (req, res) => {
-  if (!firebaseInitialized) {
-    return res.status(503).json({ error: "Firebase nicht konfiguriert" });
-  }
-
   const { title, body } = req.body;
   if (!title || !body) {
     return res.status(400).json({ error: "title und body sind erforderlich" });
   }
 
-  const tokens = loadTokens();
-  if (tokens.length === 0) {
+  let totalSuccess = 0;
+  let totalFailure = 0;
+
+  // FCM
+  if (firebaseInitialized) {
+    const tokens = loadTokens();
+    if (tokens.length > 0) {
+      try {
+        const response = await sendToMultiple(tokens, { title, body });
+        totalSuccess += response.successCount;
+        totalFailure += response.failureCount;
+      } catch (err) {
+        console.error("[Broadcast] FCM-Fehler:", err.message);
+      }
+    }
+  }
+
+  // Web Push
+  try {
+    const wpResult = await sendWebPushToAll(title, body, 1);
+    totalSuccess += wpResult.successCount;
+    totalFailure += wpResult.failureCount;
+  } catch (err) {
+    console.error("[Broadcast] WebPush-Fehler:", err.message);
+  }
+
+  if (totalSuccess + totalFailure === 0) {
     return res.status(404).json({ error: "Keine Geräte registriert" });
   }
 
-  try {
-    const response = await sendToMultiple(tokens, { title, body });
-
-    res.json({
-      message: `Broadcast an ${response.successCount} Geräte gesendet`,
-      successCount: response.successCount,
-      failureCount: response.failureCount,
-    });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
+  res.json({
+    message: `Broadcast an ${totalSuccess} Geräte gesendet`,
+    successCount: totalSuccess,
+    failureCount: totalFailure,
+  });
 });
 
 // ── Admin: Nachricht senden & speichern ────────────────────────
