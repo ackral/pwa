@@ -345,8 +345,15 @@ app.use(cors());
 app.use(express.json());
 
 // Health-Check
-app.get("/api/health", (_req, res) => {
-  res.json({ status: "ok", firebase: firebaseInitialized });
+app.get("/api/health", async (_req, res) => {
+  const tokens = await loadTokens();
+  const subs = await loadWebPushSubs();
+  res.json({
+    status: "ok",
+    firebase: firebaseInitialized,
+    fcmTokens: tokens.length,
+    webPushSubs: subs.length,
+  });
 });
 
 // ── Auth-Endpunkte ────────────────────────────────────────────
@@ -401,6 +408,7 @@ app.post("/api/notifications/subscribe", async (req, res) => {
   }
   await addToken(token);
   const tokens = await loadTokens();
+  console.log(`[FCM] Token registriert (${tokens.length} gesamt)`);
   res.json({ message: "Token registriert", total: tokens.length });
 });
 
@@ -571,6 +579,7 @@ app.post(
     // FCM Push
     if (firebaseInitialized) {
       const tokens = await loadTokens();
+      console.log(`[Push] FCM-Tokens in DB: ${tokens.length}`);
       if (tokens.length > 0) {
         try {
           console.log(`[Push] Sende an ${tokens.length} Token(s)...`);
@@ -604,6 +613,8 @@ app.post(
     const totalCount = await countMessages();
 
     // Web Push
+    const wpSubs = await loadWebPushSubs();
+    console.log(`[WebPush] Subscriptions in DB: ${wpSubs.length}`);
     try {
       const wpResult = await sendWebPushToAll(title, body, totalCount);
       console.log(
