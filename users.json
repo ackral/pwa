@@ -1,0 +1,14 @@
+[
+  {
+    "id": "1775025993692",
+    "username": "admin",
+    "password": "32d11f3669fbc8ea0fdeba0a75535712fc19cc1dcfc19f1d8f2d4593ee277c3c4aab572ecf09f63b03cc16e8aa91bff14052cbd498b2e2dfdbaef755e9389bb7",
+    "salt": "f018b4b1c2232191c42568e32873e039",
+    "name": "Administrator",
+    "email": "",
+    "role": "admin",
+    "phone": "",
+    "position": "Administrator",
+    "createdAt": "2026-04-01T06:46:33.692Z"
+  }
+]
