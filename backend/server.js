@@ -36,6 +36,7 @@ import {
   addOrUpdateWebPushSub,
   removeWebPushSub,
   removeWebPushSubs,
+  clearAllWebPushSubs,
 } from "./db.js";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -447,6 +448,21 @@ app.post("/api/push/unsubscribe", async (req, res) => {
   await removeWebPushSub(endpoint);
   res.json({ message: "Web-Push-Subscription entfernt" });
 });
+
+// ── Admin: Alle WebPush-Subscriptions löschen ─────────────────
+app.post(
+  "/api/push/clear-all",
+  authMiddleware,
+  adminMiddleware,
+  async (_req, res) => {
+    await clearAllWebPushSubs();
+    console.log("[WebPush] Alle Subscriptions gelöscht (Admin-Aktion)");
+    res.json({
+      message:
+        "Alle WebPush-Subscriptions gelöscht. Benutzer müssen sich neu anmelden.",
+    });
+  },
+);
 
 // ── Test-Nachricht senden ─────────────────────────────────────
 app.post("/api/notifications/send-test", async (req, res) => {

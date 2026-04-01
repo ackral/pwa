@@ -567,3 +567,11 @@ export async function removeWebPushSubs(endpoints) {
     [endpoints],
   );
 }
+
+export async function clearAllWebPushSubs() {
+  if (!useDb) {
+    saveJson("./webpush-subs.json", []);
+    return;
+  }
+  await pool.query("DELETE FROM webpush_subscriptions");
+}
