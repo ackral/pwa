@@ -4,3 +4,6 @@ service-account.json
 vapid.json
 *.pem
 *.key
+package-lock.json
+!/backend/package-lock.json
+!/frontend/package-lock.json
