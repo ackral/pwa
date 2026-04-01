@@ -40,6 +40,20 @@ if (isChromium) {
         icon: "/icons/icon-192.svg",
         badge: "/icons/icon-192.svg",
       });
+
+      // App-Badge setzen (Android Chrome 81+)
+      if ("setAppBadge" in navigator) {
+        navigator.setAppBadge(1).catch(() => {});
+      }
+
+      // Offene App-Fenster benachrichtigen → In-App-Banner sofort anzeigen
+      self.clients
+        .matchAll({ type: "window", includeUncontrolled: true })
+        .then((windowClients) => {
+          windowClients.forEach((client) =>
+            client.postMessage({ type: "PUSH_RECEIVED" }),
+          );
+        });
     });
 
     firebaseReady = true;
@@ -85,7 +99,18 @@ self.addEventListener("push", (event) => {
       ? navigator.setAppBadge(badgeCount)
       : Promise.resolve();
 
-  event.waitUntil(Promise.all([notifPromise, badgePromise]));
+  // Offene App-Fenster benachrichtigen → In-App-Banner sofort anzeigen
+  const notifyClientsPromise = self.clients
+    .matchAll({ type: "window", includeUncontrolled: true })
+    .then((windowClients) => {
+      windowClients.forEach((client) =>
+        client.postMessage({ type: "PUSH_RECEIVED" }),
+      );
+    });
+
+  event.waitUntil(
+    Promise.all([notifPromise, badgePromise, notifyClientsPromise]),
+  );
 });
 
 // Klick auf Benachrichtigung → App öffnen / fokussieren
