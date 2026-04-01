@@ -400,9 +400,32 @@ app.get("/api/auth/me", authMiddleware, (req, res) => {
 app.get("/api/uploads/:filename", (req, res) => {
   const safeName = req.params.filename.replace(/[^a-zA-Z0-9._-]/g, "");
   const filePath = join(UPLOADS_DIR, safeName);
+
   if (!existsSync(filePath)) {
+    console.error(`[Uploads] File not found: ${filePath}`);
     return res.status(404).json({ error: "Datei nicht gefunden" });
   }
+
+  // Set proper content type based on file extension
+  const ext = extname(filePath).toLowerCase();
+  const mimeTypes = {
+    '.pdf': 'application/pdf',
+    '.jpg': 'image/jpeg',
+    '.jpeg': 'image/jpeg',
+    '.png': 'image/png',
+    '.gif': 'image/gif',
+    '.webp': 'image/webp',
+    '.doc': 'application/msword',
+    '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    '.xls': 'application/vnd.ms-excel',
+    '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+  };
+
+  const contentType = mimeTypes[ext] || 'application/octet-stream';
+  res.setHeader('Content-Type', contentType);
+  res.setHeader('Content-Disposition', 'inline');
+
+  console.log(`[Uploads] Serving file: ${safeName} (${contentType})`);
   res.sendFile(filePath);
 });
 
