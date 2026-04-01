@@ -1,47 +1,27 @@
 // HTTP/2-Bug in firebase-admin umgehen
+// firebase-admin nutzt intern HTTP/2 für FCM — auf Windows + Node 18 kaputt.
+// Lösung: FCM REST API direkt per HTTP/1.1 ansprechen.
 process.env.GOOGLE_AUTH_LIBRARY_DISABLE_HTTP2 = "true";
 
 import express from "express";
 import cors from "cors";
 import https from "https";
-import { readFileSync, existsSync, mkdirSync, unlinkSync } from "fs";
+import {
+  readFileSync,
+  writeFileSync,
+  existsSync,
+  mkdirSync,
+  unlinkSync,
+} from "fs";
 import { createSign, scryptSync, randomBytes } from "crypto";
 import multer from "multer";
 import { fileURLToPath } from "url";
 import { dirname, join, extname } from "path";
 import webpush from "web-push";
-import {
-  initDatabase,
-  loadUsers,
-  saveUsers,
-  findUserByUsername,
-  findUserById,
-  addUser,
-  updateUser,
-  deleteUser,
-  loadMessages,
-  addMessage,
-  updateMessage,
-  deleteMessage,
-  countMessages,
-  loadTokens,
-  addToken,
-  removeToken,
-  saveTokens,
-  loadDocuments,
-  addDocument,
-  findDocument,
-  deleteDocument,
-  loadWebPushSubs,
-  addOrUpdateWebPushSub,
-  removeWebPushSub,
-  removeWebPushSubs,
-} from "./db.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
-// ── Firebase Service Account ──────────────────────────────────
 const serviceAccountPath = "./service-account.json";
 let serviceAccount = null;
 let firebaseInitialized = false;
@@ -65,7 +45,7 @@ if (process.env.FIREBASE_SERVICE_ACCOUNT) {
   );
 }
 
-// ── VAPID-Schlüssel für Web Push ──────────────────────────────
+// ── VAPID-Schlüssel für Web Push (iOS & Desktop) ──────────────
 const VAPID_FILE = "./vapid.json";
 let vapidKeys;
 if (process.env.VAPID_PUBLIC_KEY && process.env.VAPID_PRIVATE_KEY) {
@@ -79,27 +59,32 @@ if (process.env.VAPID_PUBLIC_KEY && process.env.VAPID_PRIVATE_KEY) {
   console.log("✅ VAPID-Schlüssel aus Datei geladen");
 } else {
   vapidKeys = webpush.generateVAPIDKeys();
-  try {
-    const { writeFileSync } = await import("fs");
-    writeFileSync(VAPID_FILE, JSON.stringify(vapidKeys, null, 2));
-  } catch {
-    /* ignore in readonly filesystem */
-  }
-  console.log("✅ VAPID-Schlüssel generiert");
+  writeFileSync(VAPID_FILE, JSON.stringify(vapidKeys, null, 2));
+  console.log("✅ VAPID-Schlüssel generiert und gespeichert");
 }
 webpush.setVapidDetails(
   "mailto:push@mycompanypwa.firebaseapp.com",
   vapidKeys.publicKey,
   vapidKeys.privateKey,
 );
-console.log(
-  "🔑 VAPID Public Key:",
-  vapidKeys.publicKey.substring(0, 20) + "...",
-);
+console.log("🔑 VAPID Public Key:", vapidKeys.publicKey.substring(0, 20) + "...");
 
-// ── Web Push senden ───────────────────────────────────────────
+// ── Web-Push-Subscription-Speicher ────────────────────────────
+const WEB_PUSH_SUBS_FILE = "./webpush-subs.json";
+
+function loadWebPushSubs() {
+  if (existsSync(WEB_PUSH_SUBS_FILE)) {
+    return JSON.parse(readFileSync(WEB_PUSH_SUBS_FILE, "utf8"));
+  }
+  return [];
+}
+
+function saveWebPushSubs(subs) {
+  writeFileSync(WEB_PUSH_SUBS_FILE, JSON.stringify(subs, null, 2));
+}
+
 async function sendWebPushToAll(title, body, messageCount) {
-  const subs = await loadWebPushSubs();
+  const subs = loadWebPushSubs();
   if (subs.length === 0) return { successCount: 0, failureCount: 0 };
 
   const payload = JSON.stringify({ title, body, badge: messageCount });
@@ -108,22 +93,30 @@ async function sendWebPushToAll(title, body, messageCount) {
   );
 
   let successCount = 0;
-  const invalidEndpoints = [];
+  const invalidSubs = [];
   results.forEach((r, i) => {
     if (r.status === "fulfilled") {
       successCount++;
     } else {
       const status = r.reason?.statusCode;
+      // 404/410 = subscription expired/invalid
+      if (status === 404 || status === 410) {
+        invalidSubs.push(subs[i].endpoint);
+      }
       console.error(
-        `[WebPush] Fehler bei Sub ${i}: Status=${status || "unknown"}`,
+        `[WebPush] Fehler bei Sub ${i}: Status=${status || 'unknown'}`,
         r.reason?.message,
+        r.reason?.body || '',
       );
-      invalidEndpoints.push(subs[i].endpoint);
+      // Alle fehlerhaften Subscriptions entfernen (nicht nur 404/410)
+      invalidSubs.push(subs[i].endpoint);
     }
   });
 
-  if (invalidEndpoints.length > 0) {
-    await removeWebPushSubs(invalidEndpoints);
+  // Fehlerhafte Subscriptions entfernen
+  if (invalidSubs.length > 0) {
+    const cleaned = subs.filter((s) => !invalidSubs.includes(s.endpoint));
+    saveWebPushSubs(cleaned);
   }
 
   return { successCount, failureCount: results.length - successCount };
@@ -170,7 +163,7 @@ async function getAccessToken() {
   return cachedToken;
 }
 
-// ── HTTPS POST Helper ─────────────────────────────────────────
+// ── HTTPS POST Helper (HTTP/1.1) ──────────────────────────────
 function httpPost(hostname, path, body, headers = {}) {
   return new Promise((resolve, reject) => {
     const postData = typeof body === "string" ? body : JSON.stringify(body);
@@ -180,7 +173,10 @@ function httpPost(hostname, path, body, headers = {}) {
         port: 443,
         path,
         method: "POST",
-        headers: { ...headers, "Content-Length": Buffer.byteLength(postData) },
+        headers: {
+          ...headers,
+          "Content-Length": Buffer.byteLength(postData),
+        },
         ALPNProtocols: ["http/1.1"],
       },
       (res) => {
@@ -201,12 +197,17 @@ function httpPost(hostname, path, body, headers = {}) {
   });
 }
 
-// ── FCM v1 API ────────────────────────────────────────────────
+// ── FCM v1 API: Einzelne Nachricht senden ─────────────────────
 async function sendFCMMessage(token, notification, data) {
   const accessToken = await getAccessToken();
   const projectId = serviceAccount.project_id;
 
-  const body = { message: { token, notification } };
+  const body = {
+    message: {
+      token,
+      notification,
+    },
+  };
   if (data) body.message.data = data;
 
   const result = await httpPost(
@@ -229,6 +230,7 @@ async function sendFCMMessage(token, notification, data) {
   return result;
 }
 
+// ── FCM: An mehrere Tokens senden ─────────────────────────────
 async function sendToMultiple(tokens, notification, data) {
   const results = await Promise.allSettled(
     tokens.map((token) => sendFCMMessage(token, notification, data)),
@@ -245,15 +247,44 @@ async function sendToMultiple(tokens, notification, data) {
     return { success: false, error: r.reason };
   });
 
+  // Ungültige Tokens entfernen
   const invalidStatuses = ["NOT_FOUND", "INVALID_ARGUMENT", "UNREGISTERED"];
   const validTokens = tokens.filter((_, i) => {
     if (responses[i].success) return true;
     const code = responses[i].error?.code || "";
     return !invalidStatuses.includes(code);
   });
-  if (validTokens.length !== tokens.length) await saveTokens(validTokens);
+  if (validTokens.length !== tokens.length) saveTokens(validTokens);
 
   return { successCount, failureCount, responses };
+}
+
+// ── Nachrichten-Speicher (einfache JSON-Datei) ─────────────────
+const MESSAGES_FILE = "./messages.json";
+
+function loadMessages() {
+  if (existsSync(MESSAGES_FILE)) {
+    return JSON.parse(readFileSync(MESSAGES_FILE, "utf8"));
+  }
+  return [];
+}
+
+function saveMessages(messages) {
+  writeFileSync(MESSAGES_FILE, JSON.stringify(messages, null, 2));
+}
+
+// ── Token-Speicher (einfache JSON-Datei) ───────────────────────
+const TOKENS_FILE = "./tokens.json";
+
+function loadTokens() {
+  if (existsSync(TOKENS_FILE)) {
+    return JSON.parse(readFileSync(TOKENS_FILE, "utf8"));
+  }
+  return [];
+}
+
+function saveTokens(tokens) {
+  writeFileSync(TOKENS_FILE, JSON.stringify(tokens, null, 2));
 }
 
 // ── Uploads-Verzeichnis & Multer ───────────────────────────────
@@ -304,15 +335,67 @@ function verifyPassword(password, hash, salt) {
   return buf === hash;
 }
 
+// ── Benutzer-Speicher ─────────────────────────────────────────
+const USERS_FILE = "./users.json";
+
+function loadUsers() {
+  if (existsSync(USERS_FILE)) {
+    return JSON.parse(readFileSync(USERS_FILE, "utf8"));
+  }
+  return [];
+}
+
+function saveUsers(users) {
+  writeFileSync(USERS_FILE, JSON.stringify(users, null, 2));
+}
+
+// Standard-Admin erstellen falls keine Benutzer existieren
+(function initUsers() {
+  const users = loadUsers();
+  if (users.length === 0) {
+    const { hash, salt } = hashPassword("admin123");
+    users.push({
+      id: Date.now().toString(),
+      username: "admin",
+      password: hash,
+      salt,
+      name: "Administrator",
+      email: "",
+      role: "admin",
+      phone: "",
+      position: "Administrator",
+      createdAt: new Date().toISOString(),
+    });
+    saveUsers(users);
+    console.log(
+      "👤 Standard-Admin erstellt (Benutzer: admin, Passwort: admin123)",
+    );
+  }
+})();
+
+// ── Dokument-Speicher ─────────────────────────────────────────
+const DOCUMENTS_FILE = "./documents.json";
+
+function loadDocuments() {
+  if (existsSync(DOCUMENTS_FILE)) {
+    return JSON.parse(readFileSync(DOCUMENTS_FILE, "utf8"));
+  }
+  return [];
+}
+
+function saveDocuments(docs) {
+  writeFileSync(DOCUMENTS_FILE, JSON.stringify(docs, null, 2));
+}
+
 // ── Session-Verwaltung ────────────────────────────────────────
 const sessions = new Map();
 
-function generateSessionToken() {
+function generateToken() {
   return randomBytes(32).toString("hex");
 }
 
 // ── Auth-Middleware ───────────────────────────────────────────
-async function authMiddleware(req, res, next) {
+function authMiddleware(req, res, next) {
   const token = req.headers.authorization?.replace("Bearer ", "");
   if (!token) return res.status(401).json({ error: "Nicht angemeldet" });
 
@@ -322,7 +405,8 @@ async function authMiddleware(req, res, next) {
     return res.status(401).json({ error: "Sitzung abgelaufen" });
   }
 
-  const user = await findUserById(session.userId);
+  const users = loadUsers();
+  const user = users.find((u) => u.id === session.userId);
   if (!user) return res.status(401).json({ error: "Benutzer nicht gefunden" });
 
   const { password, salt, ...safeUser } = user;
@@ -350,7 +434,7 @@ app.get("/api/health", (_req, res) => {
 });
 
 // ── Auth-Endpunkte ────────────────────────────────────────────
-app.post("/api/auth/login", async (req, res) => {
+app.post("/api/auth/login", (req, res) => {
   const { username, password } = req.body;
   if (!username || !password) {
     return res
@@ -358,12 +442,13 @@ app.post("/api/auth/login", async (req, res) => {
       .json({ error: "Benutzername und Passwort erforderlich" });
   }
 
-  const user = await findUserByUsername(username);
+  const users = loadUsers();
+  const user = users.find((u) => u.username === username);
   if (!user || !verifyPassword(password, user.password, user.salt)) {
     return res.status(401).json({ error: "Ungültige Anmeldedaten" });
   }
 
-  const token = generateSessionToken();
+  const token = generateToken();
   sessions.set(token, {
     userId: user.id,
     expiresAt: Date.now() + 24 * 60 * 60 * 1000,
@@ -393,54 +478,78 @@ app.get("/api/uploads/:filename", (req, res) => {
   res.sendFile(filePath);
 });
 
-// ── FCM Token-Verwaltung ──────────────────────────────────────
-app.post("/api/notifications/subscribe", async (req, res) => {
+// Token registrieren
+app.post("/api/notifications/subscribe", (req, res) => {
   const { token } = req.body;
   if (!token || typeof token !== "string") {
     return res.status(400).json({ error: "Token fehlt" });
   }
-  await addToken(token);
-  const tokens = await loadTokens();
+
+  const tokens = loadTokens();
+  if (!tokens.includes(token)) {
+    tokens.push(token);
+    saveTokens(tokens);
+  }
+
   res.json({ message: "Token registriert", total: tokens.length });
 });
 
-app.post("/api/notifications/unsubscribe", async (req, res) => {
+// Token entfernen
+app.post("/api/notifications/unsubscribe", (req, res) => {
   const { token } = req.body;
   if (!token || typeof token !== "string") {
     return res.status(400).json({ error: "Token fehlt" });
   }
-  await removeToken(token);
+
+  let tokens = loadTokens();
+  tokens = tokens.filter((t) => t !== token);
+  saveTokens(tokens);
+
   res.json({ message: "Token entfernt" });
 });
 
 // ── Web Push (iOS / native) ────────────────────────────────────
+
+// VAPID Public Key bereitstellen (Frontend braucht ihn für PushManager.subscribe)
 app.get("/api/push/vapid-public-key", (_req, res) => {
   res.json({ publicKey: vapidKeys.publicKey });
 });
 
-app.post("/api/push/subscribe", async (req, res) => {
+// Native Web-Push-Subscription speichern
+app.post("/api/push/subscribe", (req, res) => {
   const { subscription } = req.body;
   if (!subscription || !subscription.endpoint) {
     return res.status(400).json({ error: "Ungültige Subscription" });
   }
 
-  const total = await addOrUpdateWebPushSub(subscription);
+  const subs = loadWebPushSubs();
+  // Bestehende Subscription für denselben Endpoint aktualisieren
+  const idx = subs.findIndex((s) => s.endpoint === subscription.endpoint);
+  if (idx >= 0) {
+    subs[idx] = subscription;
+  } else {
+    subs.push(subscription);
+  }
+  saveWebPushSubs(subs);
+
   console.log(
-    `[WebPush] Subscription registriert (${total} gesamt):`,
-    subscription.endpoint.substring(0, 60) + "...",
+    `[WebPush] Subscription registriert (${subs.length} gesamt):`,
+    subscription.endpoint.substring(0, 60) + '...',
   );
   res.json({ message: "Web-Push-Subscription registriert" });
 });
 
-app.post("/api/push/unsubscribe", async (req, res) => {
+// Native Web-Push-Subscription entfernen
+app.post("/api/push/unsubscribe", (req, res) => {
   const { endpoint } = req.body;
   if (!endpoint) return res.status(400).json({ error: "Endpoint fehlt" });
 
-  await removeWebPushSub(endpoint);
+  const subs = loadWebPushSubs().filter((s) => s.endpoint !== endpoint);
+  saveWebPushSubs(subs);
   res.json({ message: "Web-Push-Subscription entfernt" });
 });
 
-// ── Test-Nachricht senden ─────────────────────────────────────
+// Test-Nachricht an alle registrierten Geräte senden
 app.post("/api/notifications/send-test", async (req, res) => {
   const { title, body } = req.body;
   const notifTitle = title || "Test-Nachricht";
@@ -449,8 +558,9 @@ app.post("/api/notifications/send-test", async (req, res) => {
   let fcmSuccess = 0;
   let fcmFailure = 0;
 
+  // FCM senden wenn konfiguriert
   if (firebaseInitialized) {
-    const tokens = await loadTokens();
+    const tokens = loadTokens();
     if (tokens.length > 0) {
       try {
         const response = await sendToMultiple(tokens, {
@@ -465,6 +575,7 @@ app.post("/api/notifications/send-test", async (req, res) => {
     }
   }
 
+  // Web Push senden (iOS, Firefox, etc.)
   let wpSuccess = 0;
   let wpFailure = 0;
   try {
@@ -489,7 +600,7 @@ app.post("/api/notifications/send-test", async (req, res) => {
   });
 });
 
-// ── Broadcast ─────────────────────────────────────────────────
+// Broadcast: Nachricht an alle
 app.post("/api/notifications/broadcast", async (req, res) => {
   const { title, body } = req.body;
   if (!title || !body) {
@@ -499,8 +610,9 @@ app.post("/api/notifications/broadcast", async (req, res) => {
   let totalSuccess = 0;
   let totalFailure = 0;
 
+  // FCM
   if (firebaseInitialized) {
-    const tokens = await loadTokens();
+    const tokens = loadTokens();
     if (tokens.length > 0) {
       try {
         const response = await sendToMultiple(tokens, { title, body });
@@ -512,6 +624,7 @@ app.post("/api/notifications/broadcast", async (req, res) => {
     }
   }
 
+  // Web Push
   try {
     const wpResult = await sendWebPushToAll(title, body, 1);
     totalSuccess += wpResult.successCount;
@@ -552,6 +665,8 @@ app.post(
       });
     }
 
+    // Nachricht speichern
+    const messages = loadMessages();
     const newMessage = {
       id: Date.now().toString(),
       title,
@@ -561,16 +676,19 @@ app.post(
       sentTo: 0,
     };
 
+    // Bild speichern wenn vorhanden
     if (req.file) {
       newMessage.imageUrl = `/api/uploads/${req.file.filename}`;
     }
+
+    // Event-Datum speichern wenn vorhanden
     if (category === "event" && eventDate) {
       newMessage.eventDate = eventDate;
     }
 
-    // FCM Push
+    // Push senden falls Firebase konfiguriert
     if (firebaseInitialized) {
-      const tokens = await loadTokens();
+      const tokens = loadTokens();
       if (tokens.length > 0) {
         try {
           console.log(`[Push] Sende an ${tokens.length} Token(s)...`);
@@ -582,6 +700,8 @@ app.post(
           console.log(
             `[Push] Erfolg: ${response.successCount}, Fehler: ${response.failureCount}`,
           );
+
+          // Fehlerdetails loggen
           response.responses.forEach((resp, i) => {
             if (!resp.success) {
               console.error(
@@ -591,29 +711,30 @@ app.post(
               );
             }
           });
+
           newMessage.sentTo = response.successCount;
         } catch (err) {
           console.error("Push-Senden fehlgeschlagen:", err.message);
+          console.error("Push-Fehler Details:", err);
           newMessage.sendError = err.message;
         }
       }
     }
 
-    // Nachricht in DB speichern
-    await addMessage(newMessage);
-    const totalCount = await countMessages();
-
-    // Web Push
+    // Web Push für iOS und andere Plattformen
+    messages.unshift(newMessage);
+    const totalCount = messages.length;
     try {
       const wpResult = await sendWebPushToAll(title, body, totalCount);
       console.log(
         `[WebPush] Erfolg: ${wpResult.successCount}, Fehler: ${wpResult.failureCount}`,
       );
       newMessage.sentTo = (newMessage.sentTo || 0) + wpResult.successCount;
-      await updateMessage(newMessage.id, { sentTo: newMessage.sentTo });
     } catch (err) {
       console.error("[WebPush] Senden fehlgeschlagen:", err.message);
     }
+
+    saveMessages(messages);
 
     res.json({
       message: "Nachricht gesendet und gespeichert",
@@ -622,50 +743,52 @@ app.post(
   },
 );
 
-// ── Nachrichten abrufen ────────────────────────────────────────
-app.get("/api/messages", authMiddleware, async (_req, res) => {
-  const messages = await loadMessages();
+// ── Admin: Alle Nachrichten abrufen ────────────────────────────
+app.get("/api/messages", authMiddleware, (_req, res) => {
+  const messages = loadMessages();
   res.json(messages);
 });
 
-app.get("/api/messages/count", authMiddleware, async (_req, res) => {
-  const messages = await loadMessages();
+// ── Nachrichten-Anzahl & neueste ID (für Badge-Count) ──────────
+app.get("/api/messages/count", authMiddleware, (_req, res) => {
+  const messages = loadMessages();
   res.json({
     total: messages.length,
     latestId: messages.length > 0 ? messages[0].id : null,
   });
 });
 
-app.get("/api/messages/:category", authMiddleware, async (req, res) => {
+// ── Admin: Nachrichten nach Kategorie ──────────────────────────
+app.get("/api/messages/:category", authMiddleware, (req, res) => {
   const { category } = req.params;
   const validCategories = ["event", "intern", "projekte"];
   if (!validCategories.includes(category)) {
     return res.status(400).json({ error: "Ungültige Kategorie" });
   }
-  const messages = await loadMessages();
+  const messages = loadMessages();
   res.json(messages.filter((m) => m.category === category));
 });
 
-app.delete(
-  "/api/messages/:id",
-  authMiddleware,
-  adminMiddleware,
-  async (req, res) => {
-    const deleted = await deleteMessage(req.params.id);
-    if (!deleted) {
-      return res.status(404).json({ error: "Nachricht nicht gefunden" });
-    }
-    res.json({ message: "Nachricht gelöscht" });
-  },
-);
+// ── Admin: Nachricht löschen ───────────────────────────────────
+app.delete("/api/messages/:id", authMiddleware, adminMiddleware, (req, res) => {
+  const { id } = req.params;
+  let messages = loadMessages();
+  const before = messages.length;
+  messages = messages.filter((m) => m.id !== id);
+  if (messages.length === before) {
+    return res.status(404).json({ error: "Nachricht nicht gefunden" });
+  }
+  saveMessages(messages);
+  res.json({ message: "Nachricht gelöscht" });
+});
 
 // ── Benutzerverwaltung (Admin) ────────────────────────────────
-app.get("/api/users", authMiddleware, adminMiddleware, async (_req, res) => {
-  const users = (await loadUsers()).map(({ password, salt, ...u }) => u);
+app.get("/api/users", authMiddleware, adminMiddleware, (_req, res) => {
+  const users = loadUsers().map(({ password, salt, ...u }) => u);
   res.json(users);
 });
 
-app.post("/api/users", authMiddleware, adminMiddleware, async (req, res) => {
+app.post("/api/users", authMiddleware, adminMiddleware, (req, res) => {
   const { username, password, name, email, role, phone, position } = req.body;
   if (!username || !password) {
     return res
@@ -673,8 +796,8 @@ app.post("/api/users", authMiddleware, adminMiddleware, async (req, res) => {
       .json({ error: "Benutzername und Passwort erforderlich" });
   }
 
-  const existing = await findUserByUsername(username);
-  if (existing) {
+  const users = loadUsers();
+  if (users.find((u) => u.username === username)) {
     return res.status(409).json({ error: "Benutzername existiert bereits" });
   }
 
@@ -692,61 +815,60 @@ app.post("/api/users", authMiddleware, adminMiddleware, async (req, res) => {
     createdAt: new Date().toISOString(),
   };
 
-  await addUser(newUser);
+  users.push(newUser);
+  saveUsers(users);
+
   const { password: _, salt: __, ...safeUser } = newUser;
   res.json({ message: "Benutzer erstellt", user: safeUser });
 });
 
-app.put("/api/users/:id", authMiddleware, adminMiddleware, async (req, res) => {
+app.put("/api/users/:id", authMiddleware, adminMiddleware, (req, res) => {
   const { id } = req.params;
-  const { name, email, role, phone, position, password } = req.body;
+  const users = loadUsers();
+  const idx = users.findIndex((u) => u.id === id);
+  if (idx === -1)
+    return res.status(404).json({ error: "Benutzer nicht gefunden" });
 
-  const fields = {};
-  if (name !== undefined) fields.name = name;
-  if (email !== undefined) fields.email = email;
-  if (role !== undefined) fields.role = role;
-  if (phone !== undefined) fields.phone = phone;
-  if (position !== undefined) fields.position = position;
+  const { name, email, role, phone, position, password } = req.body;
+  if (name !== undefined) users[idx].name = name;
+  if (email !== undefined) users[idx].email = email;
+  if (role !== undefined) users[idx].role = role;
+  if (phone !== undefined) users[idx].phone = phone;
+  if (position !== undefined) users[idx].position = position;
   if (password) {
     const { hash, salt } = hashPassword(password);
-    fields.password = hash;
-    fields.salt = salt;
+    users[idx].password = hash;
+    users[idx].salt = salt;
   }
 
-  const updated = await updateUser(id, fields);
-  if (!updated) {
-    return res.status(404).json({ error: "Benutzer nicht gefunden" });
-  }
-
-  const { password: _, salt: __, ...safeUser } = updated;
+  saveUsers(users);
+  const { password: _, salt: __, ...safeUser } = users[idx];
   res.json({ message: "Benutzer aktualisiert", user: safeUser });
 });
 
-app.delete(
-  "/api/users/:id",
-  authMiddleware,
-  adminMiddleware,
-  async (req, res) => {
-    const { id } = req.params;
-    const user = await findUserById(id);
-    if (!user) {
-      return res.status(404).json({ error: "Benutzer nicht gefunden" });
-    }
-    if (user.username === "admin") {
-      return res
-        .status(403)
-        .json({ error: "Standard-Admin kann nicht gelöscht werden" });
-    }
+app.delete("/api/users/:id", authMiddleware, adminMiddleware, (req, res) => {
+  const { id } = req.params;
+  let users = loadUsers();
+  const user = users.find((u) => u.id === id);
+  if (!user) return res.status(404).json({ error: "Benutzer nicht gefunden" });
+  if (user.username === "admin") {
+    return res
+      .status(403)
+      .json({ error: "Standard-Admin kann nicht gelöscht werden" });
+  }
 
-    await deleteUser(id);
-    res.json({ message: "Benutzer gelöscht" });
-  },
-);
+  users = users.filter((u) => u.id !== id);
+  saveUsers(users);
+  res.json({ message: "Benutzer gelöscht" });
+});
 
 // ── Dokument-Verwaltung ───────────────────────────────────────
-app.get("/api/documents", authMiddleware, async (req, res) => {
+app.get("/api/documents", authMiddleware, (req, res) => {
+  const docs = loadDocuments();
   const { category } = req.query;
-  const docs = await loadDocuments(category || null);
+  if (category) {
+    return res.json(docs.filter((d) => d.category === category));
+  }
   res.json(docs);
 });
 
@@ -755,11 +877,12 @@ app.post(
   authMiddleware,
   adminMiddleware,
   upload.single("file"),
-  async (req, res) => {
+  (req, res) => {
     if (!req.file)
       return res.status(400).json({ error: "Keine Datei hochgeladen" });
 
     const { category, description } = req.body;
+    const docs = loadDocuments();
     const newDoc = {
       id: Date.now().toString(),
       name: req.file.originalname,
@@ -772,7 +895,8 @@ app.post(
       mimetype: req.file.mimetype,
     };
 
-    await addDocument(newDoc);
+    docs.unshift(newDoc);
+    saveDocuments(docs);
     res.json({ message: "Dokument hochgeladen", document: newDoc });
   },
 );
@@ -781,61 +905,31 @@ app.delete(
   "/api/documents/:id",
   authMiddleware,
   adminMiddleware,
-  async (req, res) => {
-    const doc = await findDocument(req.params.id);
-    if (!doc) {
-      return res.status(404).json({ error: "Dokument nicht gefunden" });
-    }
+  (req, res) => {
+    const { id } = req.params;
+    let docs = loadDocuments();
+    const doc = docs.find((d) => d.id === id);
+    if (!doc) return res.status(404).json({ error: "Dokument nicht gefunden" });
 
     const filePath = join(UPLOADS_DIR, doc.filename);
     if (existsSync(filePath)) {
       unlinkSync(filePath);
     }
 
-    await deleteDocument(req.params.id);
+    docs = docs.filter((d) => d.id !== id);
+    saveDocuments(docs);
     res.json({ message: "Dokument gelöscht" });
   },
 );
 
-// ── Statische Frontend-Dateien ────────────────────────────────
+// ── Statische Frontend-Dateien bereitstellen ──────────────────
 app.use(express.static(join(__dirname, "./dist")));
 
+// Catch-all: SPA-Routing – alle unbekannten Routen an index.html
 app.get("*", (_req, res) => {
   res.sendFile(join(__dirname, "./dist/index.html"));
 });
 
-// ── Server starten ────────────────────────────────────────────
-async function start() {
-  // Datenbank initialisieren
-  await initDatabase();
-
-  // Standard-Admin erstellen falls keine Benutzer existieren
-  const users = await loadUsers();
-  if (users.length === 0) {
-    const { hash, salt } = hashPassword("admin123");
-    await addUser({
-      id: Date.now().toString(),
-      username: "admin",
-      password: hash,
-      salt,
-      name: "Administrator",
-      email: "",
-      role: "admin",
-      phone: "",
-      position: "Administrator",
-      createdAt: new Date().toISOString(),
-    });
-    console.log(
-      "👤 Standard-Admin erstellt (Benutzer: admin, Passwort: admin123)",
-    );
-  }
-
-  app.listen(PORT, () => {
-    console.log(`🚀 Backend läuft auf http://localhost:${PORT}`);
-  });
-}
-
-start().catch((err) => {
-  console.error("❌ Server konnte nicht gestartet werden:", err);
-  process.exit(1);
+app.listen(PORT, () => {
+  console.log(`🚀 Backend läuft auf http://localhost:${PORT}`);
 });
