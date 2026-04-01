@@ -12,6 +12,9 @@ export default defineConfig({
         "icons/icon-512.svg",
         "icons/icon-maskable.svg",
       ],
+      workbox: {
+        navigateFallbackDenylist: [/^\/api\//],
+      },
       manifest: {
         name: "Meine PWA",
         short_name: "PWA",
