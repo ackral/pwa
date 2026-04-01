@@ -40,9 +40,7 @@ function PushCard() {
         setPermission("granted");
         await registerTokenOnServer(token);
         setStatus(
-          isIOS()
-            ? "Push für iPhone aktiviert! ✓"
-            : "Push-Token registriert!",
+          isIOS() ? "Push für iPhone aktiviert! ✓" : "Push-Token registriert!",
         );
       } else {
         setPermission(Notification.permission);
@@ -84,8 +82,8 @@ function PushCard() {
 
         {iosHint && permission !== "granted" && (
           <p className="status-text status-warning">
-            📱 iPhone: Bitte die App zuerst zum Home-Bildschirm hinzufügen,
-            dann Benachrichtigungen erlauben.
+            📱 iPhone: Bitte die App zuerst zum Home-Bildschirm hinzufügen, dann
+            Benachrichtigungen erlauben.
           </p>
         )}
 
@@ -113,40 +111,6 @@ function PushCard() {
 
         <div className="btn-group">
           {permission !== "granted" && !notSupported && (
-            <button onClick={handleAllow} disabled={permission === "denied"}>
-              Benachrichtigungen erlauben
-            </button>
-          )}
-          {permission === "granted" && (
-            <button onClick={handleSendTest}>Test-Nachricht senden</button>
-          )}
-        </div>
-
-        {permission === "granted" && (
-          <div className="notif-form">
-            <input
-              type="text"
-              placeholder="Titel"
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-            />
-            <input
-              type="text"
-              placeholder="Nachricht"
-              value={body}
-              onChange={(e) => setBody(e.target.value)}
-            />
-          </div>
-        )}
-
-        {status && <p className="save-status">{status}</p>}
-      </section>
-    </>
-  );
-}
-
-export default PushCard;
-
             <button onClick={handleAllow} disabled={permission === "denied"}>
               Benachrichtigungen erlauben
             </button>
