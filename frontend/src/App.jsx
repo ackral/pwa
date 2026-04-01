@@ -10,7 +10,7 @@ import AdminPage from "./pages/AdminPage";
 import SettingsPage from "./pages/SettingsPage";
 import LoginPage from "./pages/LoginPage";
 import NotificationBanner from "./components/NotificationBanner";
-import { onForegroundMessage } from "./firebase";
+import { onForegroundMessage, subscribeNativePush } from "./firebase";
 
 // localStorage key used to track the last message ID the user has seen
 // so we don't re-show the same banner on every focus event.
@@ -183,6 +183,22 @@ function AppRoutes() {
       document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
   }, [checkMessages]);
+
+  // ── Automatische Web-Push-Registrierung ──────────────────────
+  // Wenn Notification-Berechtigung bereits erteilt ist, beim App-Start
+  // die native Web Push Subscription registrieren (für iOS, Firefox, etc.)
+  useEffect(() => {
+    if (
+      user &&
+      "Notification" in window &&
+      Notification.permission === "granted" &&
+      "PushManager" in window
+    ) {
+      subscribeNativePush().catch((err) =>
+        console.warn("[AutoPush] Registrierung fehlgeschlagen:", err),
+      );
+    }
+  }, [user]);
 
   // ── Firebase foreground push (Android / desktop) ─────────────
   useEffect(() => {
