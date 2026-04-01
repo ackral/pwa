@@ -16,6 +16,17 @@ import { onForegroundMessage } from "./firebase";
 // so we don't re-show the same banner on every focus event.
 const LAST_SEEN_KEY = "lastSeenMessageId";
 
+// Badge-Anzahl setzen (App-Icon, iOS 16.4+ und Chrome/Edge)
+function setAppBadge(count) {
+  if ("setAppBadge" in navigator) {
+    if (count > 0) {
+      navigator.setAppBadge(count).catch(() => {});
+    } else {
+      navigator.clearAppBadge().catch(() => {});
+    }
+  }
+}
+
 function ProtectedRoute({ children, adminOnly }) {
   const { user, loading } = useAuth();
 
@@ -108,11 +119,20 @@ function AppRoutes() {
       }
       if (!res.ok) return;
       const messages = await res.json();
-      if (!Array.isArray(messages) || messages.length === 0) return;
+      if (!Array.isArray(messages) || messages.length === 0) {
+        setAppBadge(0);
+        return;
+      }
 
       // The API returns messages newest-first; show the most recent one
       const latest = messages[0];
       const lastSeenId = localStorage.getItem(LAST_SEEN_KEY);
+
+      // Ungelesene Nachrichten zählen (alle neuer als lastSeenId)
+      const unreadCount = lastSeenId
+        ? messages.filter((m) => Number(m.id) > Number(lastSeenId)).length
+        : messages.length;
+      setAppBadge(unreadCount);
 
       // Only show the banner when there is a genuinely new message
       if (String(latest.id) !== String(lastSeenId)) {
@@ -127,6 +147,7 @@ function AppRoutes() {
   const dismissBanner = useCallback(() => {
     if (banner) {
       localStorage.setItem(LAST_SEEN_KEY, String(banner.id));
+      setAppBadge(0);
     }
     setBanner(null);
   }, [banner]);
@@ -134,6 +155,9 @@ function AppRoutes() {
   useEffect(() => {
     // Check on mount
     checkMessages();
+
+    // Alle 60 Sekunden prüfen (für Badge-Aktualisierung wenn App offen ist)
+    const pollInterval = setInterval(checkMessages, 60_000);
 
     // Check when the browser window regains focus
     window.addEventListener("focus", checkMessages);
@@ -145,6 +169,7 @@ function AppRoutes() {
     document.addEventListener("visibilitychange", handleVisibilityChange);
 
     return () => {
+      clearInterval(pollInterval);
       window.removeEventListener("focus", checkMessages);
       document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
