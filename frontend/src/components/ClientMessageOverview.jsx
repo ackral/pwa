@@ -28,6 +28,11 @@ function ClientMessageOverview() {
 
   useEffect(() => {
     fetchMessages();
+
+    // Automatisch aktualisieren wenn ein Push empfangen wird
+    const handlePushRefresh = () => fetchMessages();
+    window.addEventListener("push-received", handlePushRefresh);
+    return () => window.removeEventListener("push-received", handlePushRefresh);
   }, []);
 
   async function fetchMessages() {

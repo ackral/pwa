@@ -192,6 +192,8 @@ function AppRoutes() {
     const handleSWMessage = (event) => {
       if (event.data?.type === "PUSH_RECEIVED") {
         checkMessages();
+        // ClientMessageOverview und andere Komponenten benachrichtigen
+        window.dispatchEvent(new Event("push-received"));
       }
     };
     navigator.serviceWorker.addEventListener("message", handleSWMessage);
@@ -224,6 +226,8 @@ function AppRoutes() {
       setTimeout(() => setToast(null), 5000);
       // Badge & Banner sofort aktualisieren
       checkMessages();
+      // ClientMessageOverview aktualisieren
+      window.dispatchEvent(new Event("push-received"));
     });
     return () => unsubscribe;
   }, [checkMessages]);

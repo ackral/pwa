@@ -246,7 +246,12 @@ async function sendToMultiple(tokens, notification, data) {
     return { success: false, error: r.reason };
   });
 
-  const invalidStatuses = ["NOT_FOUND", "INVALID_ARGUMENT", "UNREGISTERED"];
+  const invalidStatuses = [
+    "NOT_FOUND",
+    "INVALID_ARGUMENT",
+    "UNREGISTERED",
+    "UNAUTHENTICATED",
+  ];
   const validTokens = tokens.filter((_, i) => {
     if (responses[i].success) return true;
     const code = responses[i].error?.code || "";
