@@ -43,7 +43,7 @@ function ProtectedRoute({ children, adminOnly }) {
   return children;
 }
 
-function HomePage() {
+function HomePage({ unreadCount }) {
   const { user, token } = useAuth();
   const [events, setEvents] = useState([]);
 
@@ -64,7 +64,12 @@ function HomePage() {
       <main>
         <section className="section-block">
           <div className="section-header">
-            <h2 className="section-title">💬 Nachrichten</h2>
+            <h2 className="section-title">
+              💬 Nachrichten
+              {unreadCount > 0 && (
+                <span className="unread-badge">{unreadCount}</span>
+              )}
+            </h2>
           </div>
           <ClientMessageOverview />
         </section>
@@ -101,6 +106,7 @@ function AppRoutes() {
   const { user, loading, token } = useAuth();
   const [toast, setToast] = useState(null);
   const [banner, setBanner] = useState(null);
+  const [unreadCount, setUnreadCount] = useState(0);
 
   // ── In-app notification check (iOS Safari fallback) ──────────
   // Fetches the latest message from the API and shows a banner if
@@ -121,6 +127,7 @@ function AppRoutes() {
       const messages = await res.json();
       if (!Array.isArray(messages) || messages.length === 0) {
         setAppBadge(0);
+        setUnreadCount(0);
         return;
       }
 
@@ -129,10 +136,11 @@ function AppRoutes() {
       const lastSeenId = localStorage.getItem(LAST_SEEN_KEY);
 
       // Ungelesene Nachrichten zählen (alle neuer als lastSeenId)
-      const unreadCount = lastSeenId
+      const count = lastSeenId
         ? messages.filter((m) => Number(m.id) > Number(lastSeenId)).length
         : messages.length;
-      setAppBadge(unreadCount);
+      setUnreadCount(count);
+      setAppBadge(count);
 
       // Only show the banner when there is a genuinely new message
       if (String(latest.id) !== String(lastSeenId)) {
@@ -148,6 +156,7 @@ function AppRoutes() {
     if (banner) {
       localStorage.setItem(LAST_SEEN_KEY, String(banner.id));
       setAppBadge(0);
+      setUnreadCount(0);
     }
     setBanner(null);
   }, [banner]);
@@ -198,7 +207,7 @@ function AppRoutes() {
           path="/"
           element={
             <ProtectedRoute>
-              <HomePage />
+              <HomePage unreadCount={unreadCount} />
             </ProtectedRoute>
           }
         />

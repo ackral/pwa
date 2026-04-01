@@ -3,9 +3,21 @@ import { getMessaging, getToken, onMessage } from "firebase/messaging";
 import { firebaseConfig, vapidKey } from "./firebase-config";
 
 const app = initializeApp(firebaseConfig);
-const messaging = getMessaging(app);
 
-// iOS erkennen (iOS Safari unterstützt kein Firebase FCM, aber nativen Web Push)
+// Firebase Messaging nur auf Chromium-Browsern initialisieren
+// (Firefox & iOS Safari unterstützen kein FCM)
+const isChromium =
+  /Chrome/.test(navigator.userAgent) && !/Edge/.test(navigator.userAgent);
+let messaging = null;
+try {
+  if (isChromium) {
+    messaging = getMessaging(app);
+  }
+} catch {
+  console.warn("[Push] Firebase Messaging nicht verfügbar");
+}
+
+// iOS erkennen
 export function isIOS() {
   return (
     /iPad|iPhone|iPod/.test(navigator.userAgent) ||
@@ -21,39 +33,46 @@ function urlBase64ToUint8Array(base64String) {
   return Uint8Array.from([...rawData].map((c) => c.charCodeAt(0)));
 }
 
-// Nativen Web Push abonnieren (iOS Safari + alle Plattformen als Fallback)
+// Nativen Web Push abonnieren (funktioniert auf ALLEN Plattformen)
 export async function subscribeNativePush() {
   if (!("serviceWorker" in navigator) || !("PushManager" in window)) {
-    throw new Error("Web Push wird nicht unterstützt");
+    console.warn("[Push] Web Push API nicht verfügbar");
+    return null;
   }
 
-  // VAPID Public Key vom Server holen
-  const keyRes = await fetch("/api/push/vapid-public-key");
-  const { publicKey } = await keyRes.json();
+  try {
+    // VAPID Public Key vom Server holen
+    const keyRes = await fetch("/api/push/vapid-public-key");
+    const { publicKey } = await keyRes.json();
 
-  // firebase-messaging-sw.js als Service Worker registrieren
-  const swReg = await navigator.serviceWorker.register(
-    "/firebase-messaging-sw.js",
-  );
-  await navigator.serviceWorker.ready;
+    // firebase-messaging-sw.js als Service Worker registrieren
+    const swReg = await navigator.serviceWorker.register(
+      "/firebase-messaging-sw.js",
+    );
+    await navigator.serviceWorker.ready;
 
-  // Bestehende Subscription prüfen
-  let subscription = await swReg.pushManager.getSubscription();
-  if (!subscription) {
-    subscription = await swReg.pushManager.subscribe({
-      userVisibleOnly: true,
-      applicationServerKey: urlBase64ToUint8Array(publicKey),
+    // Bestehende Subscription prüfen
+    let subscription = await swReg.pushManager.getSubscription();
+    if (!subscription) {
+      subscription = await swReg.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array(publicKey),
+      });
+    }
+
+    // Subscription beim Backend registrieren
+    await fetch("/api/push/subscribe", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ subscription }),
     });
+
+    console.log("[Push] Native Web Push Subscription registriert");
+    return subscription;
+  } catch (err) {
+    console.error("[Push] Native Web Push Subscription fehlgeschlagen:", err);
+    return null;
   }
-
-  // Subscription beim Backend registrieren
-  await fetch("/api/push/subscribe", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ subscription }),
-  });
-
-  return subscription;
 }
 
 // Native Web-Push-Subscription entfernen
@@ -89,32 +108,35 @@ export async function requestNotificationPermission() {
     return null;
   }
 
-  // Auf iOS: nativen Web Push verwenden statt FCM
-  if (isIOS()) {
-    console.log("[Push] iOS erkannt – verwende nativen Web Push");
-    await subscribeNativePush();
-    return "ios-webpush";
+  // IMMER nativen Web Push abonnieren (funktioniert auf allen Plattformen)
+  await subscribeNativePush();
+
+  // Auf Chromium zusätzlich FCM registrieren (für Firebase-spezifische Features)
+  if (isChromium && messaging) {
+    try {
+      console.log("[Push] Chromium erkannt – registriere zusätzlich FCM...");
+      const swRegistration = await navigator.serviceWorker.register(
+        "/firebase-messaging-sw.js",
+      );
+      const token = await getToken(messaging, {
+        vapidKey,
+        serviceWorkerRegistration: swRegistration,
+      });
+      console.log("[Push] FCM-Token erhalten:", token ? "ja" : "nein");
+      return token;
+    } catch (err) {
+      console.warn("[Push] FCM-Registrierung fehlgeschlagen:", err.message);
+    }
   }
 
-  // Firebase-Messaging-Service-Worker explizit registrieren,
-  // damit es keinen Konflikt mit dem VitePWA-Service-Worker gibt
-  console.log("[Push] Registriere Service Worker...");
-  const swRegistration = await navigator.serviceWorker.register(
-    "/firebase-messaging-sw.js",
-  );
-  console.log("[Push] Service Worker registriert:", swRegistration.scope);
-
-  console.log("[Push] Fordere FCM-Token an...");
-  const token = await getToken(messaging, {
-    vapidKey,
-    serviceWorkerRegistration: swRegistration,
-  });
-  console.log("[Push] Token erhalten:", token ? "ja" : "nein");
-  return token;
+  // Auf iOS / Firefox: nur nativer Web Push
+  return "webpush-only";
 }
 
 export async function registerTokenOnServer(token) {
-  if (token === "ios-webpush") return { message: "iOS Web Push registriert" };
+  if (token === "webpush-only" || token === "ios-webpush") {
+    return { message: "Web Push registriert" };
+  }
   const res = await fetch("/api/notifications/subscribe", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -124,6 +146,7 @@ export async function registerTokenOnServer(token) {
 }
 
 export function onForegroundMessage(callback) {
+  if (!messaging) return () => {};
   return onMessage(messaging, (payload) => {
     callback(payload);
   });
