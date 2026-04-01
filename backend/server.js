@@ -263,7 +263,7 @@ async function sendToMultiple(tokens, notification, data) {
 }
 
 // ── Uploads-Verzeichnis & Multer ───────────────────────────────
-const UPLOADS_DIR = "/app/backend/uploads";
+const UPLOADS_DIR = process.env.UPLOADS_DIR || join(__dirname, "uploads");
 mkdirSync(UPLOADS_DIR, { recursive: true });
 
 const storage = multer.diskStorage({
