@@ -944,6 +944,73 @@ footer {
   opacity: 0.7;
 }
 
+/* ── Load More / All Loaded ──────────────────────────────────── */
+
+.btn-load-more {
+  display: block;
+  width: 100%;
+  margin-top: 0.5rem;
+  background: var(--primary-bg);
+  color: var(--primary);
+  font-size: 0.85rem;
+  font-weight: 600;
+  padding: 0.6rem 1rem;
+  border-radius: var(--radius-md);
+  border: 1.5px solid var(--primary);
+  cursor: pointer;
+  transition: all var(--transition);
+}
+
+.btn-load-more:hover {
+  background: var(--primary);
+  color: white;
+  transform: none;
+  box-shadow: none;
+}
+
+.msg-all-loaded {
+  text-align: center;
+  font-size: 0.78rem;
+  color: var(--gray-400);
+  margin-top: 0.5rem;
+}
+
+/* ── Collapsible Message Item ────────────────────────────────── */
+
+.message-item {
+  cursor: pointer;
+  user-select: none;
+}
+
+.message-item.expanded {
+  background: white;
+  box-shadow: var(--shadow-sm);
+}
+
+.message-header-right {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.message-chevron {
+  font-size: 0.6rem;
+  color: var(--gray-400);
+  flex-shrink: 0;
+}
+
+.message-body {
+  margin-top: 0.5rem;
+  cursor: auto;
+}
+
+.message-image {
+  width: 100%;
+  border-radius: var(--radius-sm);
+  margin-top: 0.5rem;
+  cursor: auto;
+}
+
 /* ── Refresh Button ──────────────────────────────────────────── */
 
 .btn-refresh {

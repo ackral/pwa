@@ -20,11 +20,14 @@ const categoryLabel = {
   projekte: "Projekte",
 };
 
+const PAGE_SIZE = 5;
+
 function ClientMessageOverview() {
   const { token } = useAuth();
   const [messages, setMessages] = useState([]);
   const [filter, setFilter] = useState("all");
   const [loading, setLoading] = useState(true);
+  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
 
   useEffect(() => {
     fetchMessages();
@@ -49,8 +52,15 @@ function ClientMessageOverview() {
     setLoading(false);
   }
 
+  function handleFilterChange(value) {
+    setFilter(value);
+    setVisibleCount(PAGE_SIZE);
+  }
+
   const filtered =
     filter === "all" ? messages : messages.filter((m) => m.category === filter);
+  const visible = filtered.slice(0, visibleCount);
+  const hasMore = visibleCount < filtered.length;
 
   return (
     <div className="messages-container">
@@ -59,7 +69,7 @@ function ClientMessageOverview() {
           <button
             key={c.value}
             className={`filter-tab ${filter === c.value ? "active" : ""}`}
-            onClick={() => setFilter(c.value)}
+            onClick={() => handleFilterChange(c.value)}
           >
             {c.label}
             <span className="tab-count">
@@ -81,11 +91,27 @@ function ClientMessageOverview() {
           <p>Keine Nachrichten vorhanden</p>
         </div>
       ) : (
-        <div className="message-list">
-          {filtered.map((msg) => (
-            <ClientMessageItem key={msg.id} msg={msg} />
-          ))}
-        </div>
+        <>
+          <div className="message-list">
+            {visible.map((msg) => (
+              <ClientMessageItem key={msg.id} msg={msg} />
+            ))}
+          </div>
+          {hasMore && (
+            <button
+              className="btn-load-more"
+              onClick={() => setVisibleCount((v) => v + PAGE_SIZE)}
+            >
+              Weitere {Math.min(PAGE_SIZE, filtered.length - visibleCount)}{" "}
+              Nachrichten laden
+            </button>
+          )}
+          {!hasMore && filtered.length > PAGE_SIZE && (
+            <p className="msg-all-loaded">
+              Alle {filtered.length} Nachrichten geladen
+            </p>
+          )}
+        </>
       )}
 
       <button className="btn-refresh" onClick={fetchMessages}>
@@ -96,6 +122,8 @@ function ClientMessageOverview() {
 }
 
 function ClientMessageItem({ msg }) {
+  const [expanded, setExpanded] = useState(false);
+
   const date = new Date(msg.createdAt).toLocaleString("de-DE", {
     day: "2-digit",
     month: "2-digit",
@@ -106,8 +134,9 @@ function ClientMessageItem({ msg }) {
 
   return (
     <div
-      className="message-item"
+      className={`message-item ${expanded ? "expanded" : ""}`}
       style={{ borderLeftColor: categoryColor[msg.category] }}
+      onClick={() => setExpanded((e) => !e)}
     >
       <div className="message-header">
         <span
@@ -116,20 +145,29 @@ function ClientMessageItem({ msg }) {
         >
           {categoryLabel[msg.category]}
         </span>
-        <span className="message-date">{date}</span>
+        <div className="message-header-right">
+          <span className="message-date">{date}</span>
+          <span className="message-chevron">{expanded ? "▲" : "▼"}</span>
+        </div>
       </div>
       <strong className="message-title">{msg.title}</strong>
-      <div
-        className="message-body"
-        dangerouslySetInnerHTML={{ __html: msg.body }}
-      />
-      {msg.imageUrl && (
-        <img
-          src={msg.imageUrl}
-          alt="Bild"
-          className="message-image"
-          loading="lazy"
-        />
+      {expanded && (
+        <>
+          <div
+            className="message-body"
+            dangerouslySetInnerHTML={{ __html: msg.body }}
+            onClick={(e) => e.stopPropagation()}
+          />
+          {msg.imageUrl && (
+            <img
+              src={msg.imageUrl}
+              alt="Bild"
+              className="message-image"
+              loading="lazy"
+              onClick={(e) => e.stopPropagation()}
+            />
+          )}
+        </>
       )}
     </div>
   );
