@@ -133,6 +133,7 @@ body {
 
 .header-icon-btn {
   background: rgba(255, 255, 255, 0.12);
+  -webkit-backdrop-filter: blur(8px);
   backdrop-filter: blur(8px);
   border: 1px solid rgba(255, 255, 255, 0.15);
   color: white;
@@ -167,6 +168,7 @@ body {
   height: 52px;
   border-radius: var(--radius-lg);
   background: rgba(255, 255, 255, 0.18);
+  -webkit-backdrop-filter: blur(12px);
   backdrop-filter: blur(12px);
   color: white;
   font-weight: 700;
