@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useRef, useCallback } from "react";
 import { useAuth, authHeaders } from "../auth";
 
 const CATEGORIES = [
@@ -6,6 +6,106 @@ const CATEGORIES = [
   { value: "intern", label: "Intern" },
   { value: "projekte", label: "Projekte" },
 ];
+
+const TOOLBAR_ACTIONS = [
+  { cmd: "bold", icon: "B", title: "Fett", style: "font-weight:700" },
+  { cmd: "italic", icon: "I", title: "Kursiv", style: "font-style:italic" },
+  {
+    cmd: "underline",
+    icon: "U",
+    title: "Unterstrichen",
+    style: "text-decoration:underline",
+  },
+  {
+    cmd: "strikeThrough",
+    icon: "S",
+    title: "Durchgestrichen",
+    style: "text-decoration:line-through",
+  },
+  { type: "sep" },
+  { cmd: "insertUnorderedList", icon: "•", title: "Aufzählung" },
+  { cmd: "insertOrderedList", icon: "1.", title: "Nummerierung" },
+  { type: "sep" },
+  { cmd: "createLink", icon: "🔗", title: "Link einfügen" },
+  { cmd: "removeFormat", icon: "✕", title: "Formatierung entfernen" },
+];
+
+function RichTextEditor({ value, onChange, placeholder }) {
+  const editorRef = useRef(null);
+
+  const execCommand = useCallback(
+    (cmd) => {
+      if (cmd === "createLink") {
+        const url = prompt("URL eingeben:");
+        if (url) document.execCommand("createLink", false, url);
+      } else {
+        document.execCommand(cmd, false, null);
+      }
+      if (editorRef.current) {
+        onChange(editorRef.current.innerHTML);
+      }
+      editorRef.current?.focus();
+    },
+    [onChange],
+  );
+
+  function handleInput() {
+    if (editorRef.current) {
+      onChange(editorRef.current.innerHTML);
+    }
+  }
+
+  function handlePaste(e) {
+    e.preventDefault();
+    const text = e.clipboardData.getData("text/plain");
+    document.execCommand("insertText", false, text);
+  }
+
+  const isEmpty = !value || value === "<br>" || value === "<div><br></div>";
+
+  return (
+    <div className="rich-editor-wrapper">
+      <div className="rich-editor-toolbar">
+        {TOOLBAR_ACTIONS.map((action, i) =>
+          action.type === "sep" ? (
+            <span key={i} className="toolbar-sep" />
+          ) : (
+            <button
+              key={action.cmd}
+              type="button"
+              className="toolbar-btn"
+              title={action.title}
+              style={
+                action.style
+                  ? {
+                      ...Object.fromEntries([
+                        action.style.split(":").map((s) => s.trim()),
+                      ]),
+                    }
+                  : undefined
+              }
+              onMouseDown={(e) => {
+                e.preventDefault();
+                execCommand(action.cmd);
+              }}
+            >
+              {action.icon}
+            </button>
+          ),
+        )}
+      </div>
+      <div
+        ref={editorRef}
+        className={`rich-editor-content${isEmpty ? " is-empty" : ""}`}
+        contentEditable
+        data-placeholder={placeholder}
+        onInput={handleInput}
+        onPaste={handlePaste}
+        suppressContentEditableWarning
+      />
+    </div>
+  );
+}
 
 function AdminSendMessage() {
   const { token } = useAuth();
@@ -36,9 +136,11 @@ function AdminSendMessage() {
     setImagePreview(null);
   }
 
+  const bodyEmpty = !body || body === "<br>" || body === "<div><br></div>";
+
   async function handleSend(e) {
     e.preventDefault();
-    if (!title.trim() || !body.trim()) return;
+    if (!title.trim() || bodyEmpty) return;
 
     setSending(true);
     setStatus("");
@@ -62,7 +164,7 @@ function AdminSendMessage() {
       });
       const data = await res.json();
       if (res.ok) {
-        setStatus(`Gesendet an ${data.data.sentTo} Geräte`);
+        setStatus(`✓ Gesendet an ${data.data.sentTo} Geräte`);
         setTitle("");
         setBody("");
         setEventDate("");
@@ -80,33 +182,35 @@ function AdminSendMessage() {
 
   return (
     <section className="card">
-      <h2>Nachricht senden</h2>
+      <h2>✉️ Nachricht senden</h2>
       <form className="admin-form" onSubmit={handleSend}>
-        <label>
-          Kategorie
-          <select
-            value={category}
-            onChange={(e) => setCategory(e.target.value)}
-          >
-            {CATEGORIES.map((c) => (
-              <option key={c.value} value={c.value}>
-                {c.label}
-              </option>
-            ))}
-          </select>
-        </label>
-
-        {category === "event" && (
-          <label>
-            Datum
-            <input
-              type="date"
-              value={eventDate}
-              onChange={(e) => setEventDate(e.target.value)}
-              required
-            />
+        <div className="form-row">
+          <label className="form-field">
+            Kategorie
+            <select
+              value={category}
+              onChange={(e) => setCategory(e.target.value)}
+            >
+              {CATEGORIES.map((c) => (
+                <option key={c.value} value={c.value}>
+                  {c.label}
+                </option>
+              ))}
+            </select>
           </label>
-        )}
+
+          {category === "event" && (
+            <label className="form-field">
+              Datum
+              <input
+                type="date"
+                value={eventDate}
+                onChange={(e) => setEventDate(e.target.value)}
+                required
+              />
+            </label>
+          )}
+        </div>
 
         <label>
           Titel
@@ -119,15 +223,12 @@ function AdminSendMessage() {
           />
         </label>
 
-        <label>
-          Nachricht
-          <textarea
-            value={body}
-            onChange={(e) => setBody(e.target.value)}
-            placeholder="Nachrichtentext"
-            required
-          />
-        </label>
+        <label>Nachricht</label>
+        <RichTextEditor
+          value={body}
+          onChange={setBody}
+          placeholder="Nachrichtentext eingeben…"
+        />
 
         <label>
           Bild (optional)
@@ -146,11 +247,17 @@ function AdminSendMessage() {
           </div>
         )}
 
-        <button type="submit" disabled={sending}>
+        <button type="submit" disabled={sending || !title.trim() || bodyEmpty}>
           {sending ? "Wird gesendet…" : "Nachricht senden"}
         </button>
 
-        {status && <p className="send-status">{status}</p>}
+        {status && (
+          <p
+            className={`send-status ${status.startsWith("Fehler") ? "send-status-error" : ""}`}
+          >
+            {status}
+          </p>
+        )}
       </form>
     </section>
   );

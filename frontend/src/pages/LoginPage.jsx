@@ -27,11 +27,11 @@ function LoginPage() {
     <>
       <header>
         <h1>Meine PWA</h1>
-        <p className="subtitle">Bitte anmelden</p>
+        <p className="subtitle">Willkommen zurück</p>
       </header>
       <main>
         <section className="card login-card">
-          <h2>🔒 Anmeldung</h2>
+          <h2>🔐 Anmelden</h2>
           <form className="admin-form" onSubmit={handleSubmit}>
             <label>
               Benutzername

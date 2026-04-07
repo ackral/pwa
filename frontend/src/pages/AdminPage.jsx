@@ -10,7 +10,7 @@ function AdminPage() {
     <>
       <header>
         <h1>Admin-Bereich</h1>
-        <p className="subtitle">Nachrichten, Benutzer & Dokumente verwalten</p>
+        <p className="subtitle">Nachrichten, Benutzer & Dokumente</p>
       </header>
       <main>
         <nav className="admin-nav">

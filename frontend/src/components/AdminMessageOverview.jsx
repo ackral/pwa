@@ -155,7 +155,10 @@ function MessageItem({ msg, categoryLabel, categoryColor, onDelete }) {
         <span className="message-date">{date}</span>
       </div>
       <strong className="message-title">{msg.title}</strong>
-      <p className="message-body">{msg.body}</p>
+      <div
+        className="message-body"
+        dangerouslySetInnerHTML={{ __html: msg.body }}
+      />
       {msg.imageUrl && (
         <img
           src={msg.imageUrl}
