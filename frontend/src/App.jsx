@@ -46,6 +46,7 @@ function ProtectedRoute({ children, adminOnly }) {
 function HomePage({ unreadCount }) {
   const { user, token } = useAuth();
   const [events, setEvents] = useState([]);
+  const [activeTab, setActiveTab] = useState("nachrichten");
 
   useEffect(() => {
     fetch("/api/messages", {
@@ -62,37 +63,41 @@ function HomePage({ unreadCount }) {
     <>
       <Header />
       <main>
-        <section className="section-block">
-          <div className="section-header">
-            <h2 className="section-title">
-              💬 Nachrichten
-              {unreadCount > 0 && (
-                <span className="unread-badge">{unreadCount}</span>
-              )}
-            </h2>
-          </div>
-          <ClientMessageOverview />
-        </section>
+        <nav className="tab-nav">
+          <button
+            className={`tab-btn${activeTab === "nachrichten" ? " active" : ""}`}
+            onClick={() => setActiveTab("nachrichten")}
+          >
+            Nachrichten
+            {unreadCount > 0 && (
+              <span className="unread-badge">{unreadCount}</span>
+            )}
+          </button>
+          <button
+            className={`tab-btn${activeTab === "kalender" ? " active" : ""}`}
+            onClick={() => setActiveTab("kalender")}
+          >
+            Kalender
+          </button>
+          <button
+            className={`tab-btn${activeTab === "dokumente" ? " active" : ""}`}
+            onClick={() => setActiveTab("dokumente")}
+          >
+            Dokumente
+          </button>
+        </nav>
 
-        <section className="section-block">
-          <div className="section-header">
-            <h2 className="section-title">📅 Kalender</h2>
-          </div>
-          <EventCalendar events={events} />
-        </section>
-
-        <section className="section-block">
-          <div className="section-header">
-            <h2 className="section-title">📋 Dokumente</h2>
-          </div>
-          <DocumentList />
-        </section>
+        <div className="tab-content">
+          {activeTab === "nachrichten" && <ClientMessageOverview />}
+          {activeTab === "kalender" && <EventCalendar events={events} />}
+          {activeTab === "dokumente" && <DocumentList />}
+        </div>
       </main>
 
       {user?.role === "admin" && (
         <nav className="bottom-nav">
           <Link to="/admin" className="nav-link nav-link-admin">
-            🛠️ Admin-Bereich
+            Admin-Bereich
           </Link>
         </nav>
       )}
